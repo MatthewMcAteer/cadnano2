@@ -34,6 +34,7 @@ from .enum import Crossovers, EndType
 from PyQt4.QtCore import pyqtSignal, QObject, QTimer
 from PyQt4.QtGui import QUndoCommand, QUndoStack, QColor
 from .base import Base
+from .oligo import Oligo, OligoBank
 from util import *
 from cadnano import app
 from random import Random
@@ -177,59 +178,60 @@ class VirtualHelix(QObject):
             self.part().renumberVirtualHelix(self, newNumber)
         else:
             self._number = newNumber
-    
-    # Why two setNumber commands? Because we're faced with
-    # a bit of a connundrum. We want
-    # 1) part() to control numbering when there is a part().
-    #    Not all numbers are valid for all row, col coords (parity),
-    #    numbers must be unique in a part, etc, etc. This code
-    #    depends on the specifics of the dnapart, and so it
-    #    ought to reside in the part.
-    # 2) a VirtualHelix without a part to be able to keep track
-    #    of a number. 
-    # 3) asking a part for its number to be fast. We do it a
-    #    lot, so doing a reverse lookup is unseemly.
-    # How do we accomplish these goals?
-    # 1) We declare that dnapart has the final say on numbers.
-    #    it's the master copy. If a VH's self._number disagrees
-    #    with the dnapart, the VH is wrong (there is always EXACTLY
-    #    one "gold" copy of any data). Parts assign new numbers
-    #    to VHs when the VHs are added to them, and they recycle
-    #    numbers for deleted VHs.
-    # 2) We add a self._number variable to the VH to keep track of
-    #    a number when a VH has no part, with the proviso that this
-    #    ivar is meaningless when there is a self.part().
-    # 3) In times when we have a part, we save self._number from
-    #    uselessness by making it a cache for reverse lookups of
-    #    the number for a specific VH.
-    # So, why two setNumber commands? What is the main question 
-    # facing any user of an API? "How do I do x." This is answered
-    # by searching for a relevant method name. Once such a method
-    # name is found, the next question is "will calling this method
-    # suffice?" Wary of caches (implicit or explicit) that need updating,
-    # buffers that need flushing, and invariants that must be maintained,
-    # this question often has a very complicated answer. A very simple
-    # way to make an API user friendly is to ensure that the answer
-    # is "Yes" for *ALL* public methods.
-    #   No underscore => A caller is only responsible for is calling the method.
-    #   underscore    => The caller has to do other voodoo to get the
-    #                    suggested result (invalidate caches, flush buffers,
-    #                    maintain invariants, pet watchdogs, etc)
-    # So, in particular:
-    #   setNumber will ask the part to validate the new number,
-    #     maintain the numbering system responsible for quickly
-    #     assigning numbers to now helices, emit notifications,
-    #     and assure that the newNumber isn't already in use by
-    #     another VH. If the receiver has no part(), self._number
-    #     is a gold copy of the numbering data and can be simply
-    #     updated. The user doesn't need to worry about any of this.
-    #     In a command line script with no part(), the VH will
-    #     use its new number without question, and inside the GUI
-    #     changes will automagically appear in the interface.
-    #   _setNumber JUST updates the cached value of self._number if
-    #     self has a part. It could be skipped, but then DNAPart
-    #     would have to touch the ivar self._number directly, which
-    #     is mildly bad karma.
+    """
+    Why two setNumber commands? Because we're faced with
+    a bit of a connundrum. We want
+    1) part() to control numbering when there is a part().
+       Not all numbers are valid for all row, col coords (parity),
+       numbers must be unique in a part, etc, etc. This code
+       depends on the specifics of the dnapart, and so it
+       ought to reside in the part.
+    2) a VirtualHelix without a part to be able to keep track
+       of a number. 
+    3) asking a part for its number to be fast. We do it a
+       lot, so doing a reverse lookup is unseemly.
+    How do we accomplish these goals?
+    1) We declare that dnapart has the final say on numbers.
+       it's the master copy. If a VH's self._number disagrees
+       with the dnapart, the VH is wrong (there is always EXACTLY
+       one "gold" copy of any data). Parts assign new numbers
+       to VHs when the VHs are added to them, and they recycle
+       numbers for deleted VHs.
+    2) We add a self._number variable to the VH to keep track of
+       a number when a VH has no part, with the proviso that this
+       ivar is meaningless when there is a self.part().
+    3) In times when we have a part, we save self._number from
+       uselessness by making it a cache for reverse lookups of
+       the number for a specific VH.
+    So, why two setNumber commands? What is the main question 
+    facing any user of an API? "How do I do x." This is answered
+    by searching for a relevant method name. Once such a method
+    name is found, the next question is "will calling this method
+    suffice?" Wary of caches (implicit or explicit) that need updating,
+    buffers that need flushing, and invariants that must be maintained,
+    this question often has a very complicated answer. A very simple
+    way to make an API user friendly is to ensure that the answer
+    is "Yes" for *ALL* public methods.
+      No underscore => A caller is only responsible for is calling the method.
+      underscore    => The caller has to do other voodoo to get the
+                       suggested result (invalidate caches, flush buffers,
+                       maintain invariants, pet watchdogs, etc)
+    So, in particular:
+      setNumber will ask the part to validate the new number,
+        maintain the numbering system responsible for quickly
+        assigning numbers to now helices, emit notifications,
+        and assure that the newNumber isn't already in use by
+        another VH. If the receiver has no part(), self._number
+        is a gold copy of the numbering data and can be simply
+        updated. The user doesn't need to worry about any of this.
+        In a command line script with no part(), the VH will
+        use its new number without question, and inside the GUI
+        changes will automagically appear in the interface.
+      _setNumber JUST updates the cached value of self._number if
+        self has a part. It could be skipped, but then DNAPart
+        would have to touch the ivar self._number directly, which
+        is mildly bad karma.
+    """
     def _setNumber(self, newNumber):
         self._number = newNumber
 
@@ -384,20 +386,20 @@ class VirtualHelix(QObject):
         segments, ends3, ends5 = [], [], []
         strand = self._strand(strandType)
         i, s = 0, None
-        curColor = None
+        curOligo = None
         # s is the start index of the segment
-        # segColor is the color of the current segment
+        # segOligo is the color of the current segment
         for i in range(len(strand)):
             b = strand[i]
             
             #Segments
             if b._connectsToNatL():
-                if curColor != b.getColor():
+                if curOligo != b.oligo():
                     segments.append((s,i))
                     s = i
                 if s==None:
                     s = i
-                    curColor = b.getColor()
+                    curOligo = b.oligo()
                 else:
                     pass
             else: # not connected to base on left
@@ -409,7 +411,7 @@ class VirtualHelix(QObject):
             if b._connectsToNatR():
                 if s==None:
                     s = i+.5
-                    curColor = b.getColor()
+                    curOligo = b.oligo()
                 else:
                     pass
             else: # not connected to base on right
@@ -698,9 +700,9 @@ class VirtualHelix(QObject):
         (self, strandType, index) and apply color to every base
         in that strand. If color is none, pick a (bright) random
         color and apply it to every base in that strand"""
-        if undoStack==None:
+        if undoStack == None:
             undoStack = self.undoStack()
-        if color==None:
+        if color == None:
             color = self.palette()[0]
         undoStack.beginMacro("Apply Color")
         bases = self._basesConnectedTo(strandType, index)
@@ -764,7 +766,7 @@ class VirtualHelix(QObject):
                          131*int(b._strandtype) +\
                          151*b._n
                 color = QColor()
-                color.setHsv(newHue%256, 255, 255)
+                color.setHsv(newHue % 256, 255, 255)
             self._newColor = color
         def redo(self):
             oc = self._oldColors = []
@@ -932,7 +934,7 @@ class VirtualHelix(QObject):
                     potentialNewEndpoints.append(rightBase._5pBase)
                     ol.append(rightBase._set5Prime(None))
             else:
-                for i in range(startIdx-1, endIdx):
+                for i in range(startIdx - 1, endIdx):
                     leftBase, rightBase = strand[i], strand[i+1]
                     # Clear i.next
                     potentialNewEndpoints.extend((leftBase, leftBase._5pBase))
@@ -957,9 +959,9 @@ class VirtualHelix(QObject):
                 bases = e._vhelix._basesConnectedTo(e._strandtype, e._n)
                 # None corresponds to a pseudorandom color
                 color = None
-                if i==0 and self._colorL!=None:
+                if i == 0 and self._colorL != None:
                     color = self._colorL
-                elif i==len(newEndpts)-1 and self._colorR!=None:
+                elif i == len(newEndpts) - 1 and self._colorR != None:
                     color = self._colorR
                 c = VirtualHelix.ApplyColorCommand(bases, color)
                 c.redo()

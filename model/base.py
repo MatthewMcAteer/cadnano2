@@ -41,7 +41,7 @@ class Base(object):
         super(Base, self).__init__()
         self._5pBase = None
         self._3pBase = None
-        self._color = None
+        self._oligo = None
         self._vhelix = vhelix
         self._strandtype = strandtype
         self._n = index
@@ -228,23 +228,31 @@ class Base(object):
     def has3pBase(self):
         return self._3pBase!=None
 
+    def oligo(self):
+        return self._oligo
+    # end def
+    
+    def _setOligo(self, oligo):
+        self._oligo = oligo
+    # end def
+
     def _setColor(self, newColor):
         if newColor==None:
             newHue = prng.randint(0, 255)
             newColor = QColor()
             newColor.setHsv(newHue, 255, 255)
         oldColor = self.getColor()
-        self._color = newColor
+        self._oligo.setColor(newColor)
         self._vhelix.setHasBeenModified()
         return oldColor  # For undo
-
+        
     def getColor(self):
         if self._strandtype == StrandType.Scaffold:
             # return QColor(44, 51, 141)
             return styles.bluestroke
-        if self._color == None:
-            self._color = QColor()
-        return self._color
+        if self._oligo.color() == None:
+            self._oligo.setColor(QColor())
+        return self._oligo.color()
 
     def isEmpty(self):
         return self._5pBase == None and \
